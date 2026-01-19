@@ -1,0 +1,49 @@
+{
+  "name": "lhi-directory-monitor-ui",
+  "displayName": "LHI Directory Monitor",
+  "version": "0.1.0",
+  "description": "React UI and Express backend for real-time file system monitoring with manifest generation and exclude pattern management",
+  "formFactor": "lhi_git_projects",
+  "type": "feature-module",
+  "status": "development",
+  "author": "Life Hack Innovations LLC",
+  "created": "2025-01-19",
+  "architecture": {
+    "pattern": "feature-module",
+    "components": [
+      "React UI components (file tree, status cards)",
+      "Express server with bash script integration",
+      "Real-time status monitoring",
+      "Manifest file visualization"
+    ],
+    "configurable": true
+  },
+  "capabilities": [
+    "Start/stop directory monitor daemon",
+    "View file system manifest (.lhi_manifest)",
+    "Manage exclude patterns (.lhi_excludes)",
+    "Visualize file tree structure",
+    "Real-time status updates"
+  ],
+  "dependencies": {
+    "runtime": ["express", "cors"],
+    "peer": ["react", "react-dom", "lucide-react"],
+    "external": ["fswatch"]
+  },
+  "ports": {
+    "backend": 7014,
+    "frontend": 7015
+  },
+  "integration": {
+    "adminDashboard": {
+      "moduleId": "directory-monitor",
+      "navItem": true,
+      "icon": "FolderTree",
+      "apiPath": "/api/directory-monitor"
+    }
+  },
+  "relatedModules": {
+    "core": "lhi_directory_monitor",
+    "corePath": "lhi_modules/lhi_git_projects/LifeHackInnovationsLLC/lhi_node_modules/lhi_directory_monitor"
+  }
+}
