@@ -196,25 +196,42 @@ app.get("/api/manifest/*", async (req, res) => {
 })
 
 // Get excludes for a specific directory
+// PRIORITY ORDER (matches lhi_directory_monitor_utils.sh):
+// 1. .lhi_mutagen_excludes - Mutagen-aligned patterns (RECOMMENDED - single source of truth)
+// 2. .lhi_excludes - Legacy LHI patterns (backward compatibility)
+// 3. .gitignore - Standard git ignore (fallback)
 app.get("/api/excludes/*", async (req, res) => {
   try {
     const watchPath = normalizePathParam(req.params[0])
-    const excludePath = path.join(watchPath, ".lhi_excludes")
 
+    // PRIORITY 1: Mutagen-aligned excludes (single source of truth for sync)
+    const mutagenExcludePath = path.join(watchPath, ".lhi_mutagen_excludes")
+    try {
+      await fs.access(mutagenExcludePath)
+      const content = await fs.readFile(mutagenExcludePath, "utf-8")
+      return res.json({ patterns: parseExcludes(content), source: ".lhi_mutagen_excludes" })
+    } catch {
+      // Not found, try next priority
+    }
+
+    // PRIORITY 2: Legacy .lhi_excludes (backward compatibility)
+    const excludePath = path.join(watchPath, ".lhi_excludes")
     try {
       await fs.access(excludePath)
       const content = await fs.readFile(excludePath, "utf-8")
-      return res.json({ patterns: parseExcludes(content) })
+      return res.json({ patterns: parseExcludes(content), source: ".lhi_excludes" })
     } catch {
-      // Check for .gitignore as fallback
-      const gitignorePath = path.join(watchPath, ".gitignore")
-      try {
-        await fs.access(gitignorePath)
-        const content = await fs.readFile(gitignorePath, "utf-8")
-        return res.json({ patterns: parseExcludes(content), source: ".gitignore" })
-      } catch {
-        return res.json({ patterns: [] })
-      }
+      // Not found, try next priority
+    }
+
+    // PRIORITY 3: Standard .gitignore (fallback)
+    const gitignorePath = path.join(watchPath, ".gitignore")
+    try {
+      await fs.access(gitignorePath)
+      const content = await fs.readFile(gitignorePath, "utf-8")
+      return res.json({ patterns: parseExcludes(content), source: ".gitignore" })
+    } catch {
+      return res.json({ patterns: [], source: null })
     }
   } catch (error) {
     console.error("Excludes read error:", error)
@@ -508,27 +525,42 @@ app.get("/api/manifest", async (req, res) => {
   }
 })
 
-// Get exclude patterns
+// Get exclude patterns (legacy endpoint)
+// PRIORITY ORDER (matches lhi_directory_monitor_utils.sh):
+// 1. .lhi_mutagen_excludes - Mutagen-aligned patterns (RECOMMENDED)
+// 2. .lhi_excludes - Legacy LHI patterns
+// 3. .gitignore - Standard git ignore
 app.get("/api/excludes", async (req, res) => {
   try {
-    const excludePath = path.join(DEFAULT_WATCHED_PATH, ".lhi_excludes")
-
+    // PRIORITY 1: Mutagen-aligned excludes
+    const mutagenExcludePath = path.join(DEFAULT_WATCHED_PATH, ".lhi_mutagen_excludes")
     try {
-      await fs.access(excludePath)
+      await fs.access(mutagenExcludePath)
+      const content = await fs.readFile(mutagenExcludePath, "utf-8")
+      return res.json({ patterns: parseExcludes(content), source: ".lhi_mutagen_excludes" })
     } catch {
-      // Also check in the monitor directory
-      const monitorExcludePath = path.join(MONITOR_DIR, ".lhi_excludes")
-      try {
-        await fs.access(monitorExcludePath)
-        const content = await fs.readFile(monitorExcludePath, "utf-8")
-        return res.json({ patterns: parseExcludes(content) })
-      } catch {
-        return res.json({ patterns: [] })
-      }
+      // Not found, try next priority
     }
 
-    const content = await fs.readFile(excludePath, "utf-8")
-    res.json({ patterns: parseExcludes(content) })
+    // PRIORITY 2: Legacy .lhi_excludes in watched path
+    const excludePath = path.join(DEFAULT_WATCHED_PATH, ".lhi_excludes")
+    try {
+      await fs.access(excludePath)
+      const content = await fs.readFile(excludePath, "utf-8")
+      return res.json({ patterns: parseExcludes(content), source: ".lhi_excludes" })
+    } catch {
+      // Not found, try monitor directory
+    }
+
+    // PRIORITY 2b: Legacy .lhi_excludes in monitor directory
+    const monitorExcludePath = path.join(MONITOR_DIR, ".lhi_excludes")
+    try {
+      await fs.access(monitorExcludePath)
+      const content = await fs.readFile(monitorExcludePath, "utf-8")
+      return res.json({ patterns: parseExcludes(content), source: ".lhi_excludes (monitor)" })
+    } catch {
+      return res.json({ patterns: [], source: null })
+    }
   } catch (error) {
     console.error("Excludes read error:", error)
     res.status(500).json({ error: error.message })
