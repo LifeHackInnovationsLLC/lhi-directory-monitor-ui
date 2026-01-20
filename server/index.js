@@ -34,15 +34,19 @@ const DAEMON_SCRIPT = path.join(MONITOR_DIR, "src/lhi_directory_monitor_daemon.s
 const STATUS_SCRIPT = path.join(MONITOR_DIR, "src/lhi_directory_monitor_status.sh")
 const REGISTRY_SCRIPT = path.join(MONITOR_DIR, "src/lhi_directory_monitor_registry.sh")
 
-// Registry file location (macOS)
+// Registry file location - cross-platform
+// macOS: ~/Library/Application Support/LHI/DirectoryMonitor/registry.json
+// Linux: ~/.config/lhi/directory-monitor/registry.json
 const REGISTRY_FILE = path.join(
   process.env.HOME,
-  "Library/Application Support/LHI/DirectoryMonitor/registry.json"
+  process.platform === "darwin"
+    ? "Library/Application Support/LHI/DirectoryMonitor/registry.json"
+    : ".config/lhi/directory-monitor/registry.json"
 )
 
-// Default watched path - can be configured
-const DEFAULT_WATCHED_PATH =
-  process.env.LHI_SCRIPTS_ROOT || "/Users/patrickwatson/lhi_scripts"
+// Default watched path - MUST use LHI_SCRIPTS_ROOT environment variable
+// No hardcoded paths - path independence is mandatory
+const DEFAULT_WATCHED_PATH = process.env.LHI_SCRIPTS_ROOT || null
 
 app.use(cors())
 app.use(express.json())
@@ -782,6 +786,15 @@ function buildTreeFromFiles(files) {
 
 app.listen(PORT, () => {
   console.log(`LHI Directory Monitor Backend running on port ${PORT}`)
-  console.log(`Watching path: ${DEFAULT_WATCHED_PATH}`)
+  console.log(`Registry file: ${REGISTRY_FILE}`)
   console.log(`Monitor scripts: ${MONITOR_DIR}`)
+  console.log(`Platform: ${process.platform}`)
+
+  if (!process.env.LHI_SCRIPTS_ROOT) {
+    console.warn(`WARNING: LHI_SCRIPTS_ROOT environment variable not set!`)
+    console.warn(`Path independence requires LHI_SCRIPTS_ROOT to be defined.`)
+    console.warn(`Set it in your shell profile or systemd service file.`)
+  } else {
+    console.log(`LHI_SCRIPTS_ROOT: ${process.env.LHI_SCRIPTS_ROOT}`)
+  }
 })
