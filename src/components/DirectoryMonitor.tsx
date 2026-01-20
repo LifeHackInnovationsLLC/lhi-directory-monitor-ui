@@ -60,6 +60,8 @@ interface ManifestEntry {
   size?: number
   modified?: string
   children?: ManifestEntry[]
+  fileCount?: number  // Recursive count of files in this directory
+  dirCount?: number   // Recursive count of subdirectories in this directory
 }
 
 interface ManifestData {
@@ -152,7 +154,19 @@ function FileTreeNode({
             excluded
           </Badge>
         )}
-        {entry.size !== undefined && (
+        {/* Show file/dir counts for directories */}
+        {entry.type === "directory" && (entry.fileCount !== undefined || entry.dirCount !== undefined) && (
+          <span className="text-xs text-muted-foreground ml-auto flex gap-2">
+            {entry.fileCount !== undefined && (
+              <span title="Files in this folder">{entry.fileCount.toLocaleString()} files</span>
+            )}
+            {entry.dirCount !== undefined && (
+              <span title="Subdirectories in this folder">{entry.dirCount.toLocaleString()} dirs</span>
+            )}
+          </span>
+        )}
+        {/* Show file size for files */}
+        {entry.type !== "directory" && entry.size !== undefined && (
           <span className="text-xs text-muted-foreground ml-auto">
             {formatFileSize(entry.size)}
           </span>

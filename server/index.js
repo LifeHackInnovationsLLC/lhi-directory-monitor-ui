@@ -266,9 +266,11 @@ app.get("/api/status/*", async (req, res) => {
   try {
     const watchPath = normalizePathParam(req.params[0])
 
-    // Check if fswatch is monitoring this specific directory
+    // Check if directory monitor is running (cross-platform: fswatch on macOS, inotifywait on Linux)
+    // Also check for the daemon script directly
+    const watchTool = process.platform === "darwin" ? "fswatch" : "inotifywait"
     const { stdout } = await execAsync(
-      `pgrep -f "fswatch.*${watchPath}" || true`
+      `pgrep -f "(${watchTool}.*${watchPath}|lhi_directory_monitor.*${watchPath})" || true`
     )
     const pids = stdout.trim().split("\n").filter(Boolean)
     const running = pids.length > 0
@@ -772,6 +774,36 @@ function sortTree(entries) {
   return entries
 }
 
+// Helper: Calculate recursive file and directory counts for each directory node
+// Returns { files: number, dirs: number } for the entry
+function calculateCounts(entries) {
+  if (!entries || entries.length === 0) return { files: 0, dirs: 0 }
+
+  let totalFiles = 0
+  let totalDirs = 0
+
+  for (const entry of entries) {
+    if (entry.type === "directory") {
+      totalDirs++ // Count this directory
+
+      // Recursively calculate counts for children
+      const childCounts = calculateCounts(entry.children)
+
+      // Store recursive counts on the directory node
+      entry.fileCount = childCounts.files
+      entry.dirCount = childCounts.dirs
+
+      // Add to running totals (include children's counts)
+      totalFiles += childCounts.files
+      totalDirs += childCounts.dirs
+    } else {
+      totalFiles++ // Count this file
+    }
+  }
+
+  return { files: totalFiles, dirs: totalDirs }
+}
+
 // Helper: Build tree from flat file list
 function buildTreeFromFiles(files) {
   const tree = []
@@ -806,7 +838,12 @@ function buildTreeFromFiles(files) {
   }
 
   // Sort the tree alphabetically (directories first, then files)
-  return sortTree(tree)
+  const sortedTree = sortTree(tree)
+
+  // Calculate recursive file/directory counts for each folder
+  calculateCounts(sortedTree)
+
+  return sortedTree
 }
 
 app.listen(PORT, () => {
