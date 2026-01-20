@@ -29,10 +29,18 @@ FRONTEND_PORT=7015
 # PID files
 BACKEND_PID_FILE="$SCRIPT_DIR/.backend.pid"
 FRONTEND_PID_FILE="$SCRIPT_DIR/.frontend.pid"
+DAEMON_PID_FILE="/tmp/lhi_directory_monitor_daemon.pid"
 
 # Log directory
 LOG_DIR="$SCRIPT_DIR/logs"
 mkdir -p "$LOG_DIR"
+
+# Directory Monitor daemon location
+MONITOR_DIR="${LHI_SCRIPTS_ROOT:-$(cd "$SCRIPT_DIR/../../../../.." && pwd)}/lhi_modules/lhi_git_projects/LifeHackInnovationsLLC/lhi_node_modules/lhi_directory_monitor/src"
+DAEMON_SCRIPT="$MONITOR_DIR/lhi_directory_monitor_daemon.sh"
+
+# Default watched directory
+DEFAULT_WATCHED_DIR="${LHI_SCRIPTS_ROOT:-$(cd "$SCRIPT_DIR/../../../../.." && pwd)}"
 
 # Colors
 RED='\033[0;31m'
@@ -107,6 +115,62 @@ stop_backend() {
     echo -e "${GREEN}Backend stopped${NC}"
 }
 
+# Start manifest generation daemon
+start_daemon() {
+    echo -e "${BLUE}Starting manifest generation daemon...${NC}"
+
+    # Check if daemon script exists
+    if [ ! -f "$DAEMON_SCRIPT" ]; then
+        echo -e "${YELLOW}Warning: Daemon script not found at $DAEMON_SCRIPT${NC}"
+        echo -e "${YELLOW}Manifest generation will not be available${NC}"
+        return 1
+    fi
+
+    # Check if already running
+    if [ -f "$DAEMON_PID_FILE" ]; then
+        local pid=$(cat "$DAEMON_PID_FILE")
+        if ps -p $pid > /dev/null 2>&1; then
+            echo -e "${YELLOW}Daemon already running (PID: $pid)${NC}"
+            return 0
+        fi
+    fi
+
+    # Start the daemon
+    cd "$MONITOR_DIR"
+    nohup "$DAEMON_SCRIPT" start "$DEFAULT_WATCHED_DIR" > "$LOG_DIR/daemon.log" 2>&1 &
+
+    # Wait for startup
+    sleep 3
+
+    # Verify it started
+    if [ -f "$DAEMON_PID_FILE" ]; then
+        local pid=$(cat "$DAEMON_PID_FILE")
+        if ps -p $pid > /dev/null 2>&1; then
+            echo -e "${GREEN}Daemon started successfully (PID: $pid)${NC}"
+            return 0
+        fi
+    fi
+
+    echo -e "${YELLOW}Daemon may still be starting - check logs${NC}"
+    return 0
+}
+
+# Stop manifest generation daemon
+stop_daemon() {
+    echo -e "${BLUE}Stopping manifest generation daemon...${NC}"
+
+    if [ -f "$DAEMON_PID_FILE" ]; then
+        local pid=$(cat "$DAEMON_PID_FILE")
+        kill $pid 2>/dev/null || true
+        rm -f "$DAEMON_PID_FILE"
+        echo -e "${GREEN}Daemon stopped${NC}"
+    else
+        # Try to find and kill by process name
+        pkill -f "lhi_directory_monitor_daemon.sh" 2>/dev/null || true
+        echo -e "${GREEN}Daemon stopped${NC}"
+    fi
+}
+
 # Start frontend (standalone mode)
 start_frontend() {
     echo -e "${BLUE}Starting frontend on port $FRONTEND_PORT...${NC}"
@@ -158,6 +222,24 @@ show_status() {
         fi
     fi
 
+    echo -n "Manifest Daemon: "
+    if [ -f "$DAEMON_PID_FILE" ]; then
+        local pid=$(cat "$DAEMON_PID_FILE")
+        if ps -p $pid > /dev/null 2>&1; then
+            echo -e "${GREEN}Running (PID: $pid)${NC}"
+        else
+            echo -e "${RED}Stopped (stale PID file)${NC}"
+        fi
+    else
+        # Check by process name
+        local pid=$(pgrep -f "lhi_directory_monitor_daemon.sh" 2>/dev/null | head -1 || true)
+        if [ -n "$pid" ]; then
+            echo -e "${YELLOW}Running (PID: $pid, not managed)${NC}"
+        else
+            echo -e "${RED}Stopped${NC}"
+        fi
+    fi
+
     echo -n "Frontend (port $FRONTEND_PORT): "
     if is_running "$FRONTEND_PID_FILE"; then
         echo -e "${GREEN}Running (PID: $(cat $FRONTEND_PID_FILE))${NC}"
@@ -168,6 +250,19 @@ show_status() {
         else
             echo -e "${RED}Stopped${NC}"
         fi
+    fi
+
+    # Show watched directory
+    echo ""
+    echo -e "Watched Directory: ${BLUE}$DEFAULT_WATCHED_DIR${NC}"
+
+    # Check manifest status
+    local manifest_file="$DEFAULT_WATCHED_DIR/.lhi_manifest"
+    if [ -f "$manifest_file" ]; then
+        local manifest_time=$(stat -f "%Sm" -t "%Y-%m-%d %H:%M:%S" "$manifest_file" 2>/dev/null || stat -c "%y" "$manifest_file" 2>/dev/null | cut -d. -f1)
+        echo -e "Manifest: ${GREEN}Present${NC} (last update: $manifest_time)"
+    else
+        echo -e "Manifest: ${YELLOW}Not generated${NC}"
     fi
 
     echo ""
@@ -191,6 +286,7 @@ case "${1:-start}" in
     start)
         echo -e "${BLUE}=== Starting LHI Directory Monitor ===${NC}"
         start_backend
+        start_daemon
         echo ""
         show_status
         echo -e "${GREEN}Backend API: http://localhost:$BACKEND_PORT/api/health${NC}"
@@ -206,6 +302,7 @@ case "${1:-start}" in
         fi
 
         start_backend
+        start_daemon
         start_frontend
         echo ""
         show_status
@@ -213,16 +310,19 @@ case "${1:-start}" in
 
     stop)
         echo -e "${BLUE}=== Stopping LHI Directory Monitor ===${NC}"
+        stop_daemon
         stop_backend
         stop_frontend
         ;;
 
     restart)
         echo -e "${BLUE}=== Restarting LHI Directory Monitor ===${NC}"
+        stop_daemon
         stop_backend
         stop_frontend
         sleep 1
         start_backend
+        start_daemon
         echo ""
         show_status
         ;;
@@ -236,14 +336,14 @@ case "${1:-start}" in
         ;;
 
     *)
-        echo "Usage: $0 [start|standalone|stop|restart|status|logs [backend|frontend]]"
+        echo "Usage: $0 [start|standalone|stop|restart|status|logs [backend|frontend|daemon]]"
         echo ""
-        echo "  start      - Start backend only (for embedded mode in Admin Dashboard)"
-        echo "  standalone - Start both backend and frontend (standalone mode)"
+        echo "  start      - Start backend + daemon (for embedded mode in Admin Dashboard)"
+        echo "  standalone - Start backend, daemon, and frontend (standalone mode)"
         echo "  stop       - Stop all services"
         echo "  restart    - Restart all services"
         echo "  status     - Show service status"
-        echo "  logs       - Show service logs"
+        echo "  logs       - Show service logs (backend|frontend|daemon)"
         exit 1
         ;;
 esac
