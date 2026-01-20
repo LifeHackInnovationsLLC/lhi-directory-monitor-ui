@@ -748,6 +748,30 @@ function parseExcludes(content) {
   return patterns
 }
 
+// Helper: Sort tree entries alphabetically (directories first, then files)
+function sortTree(entries) {
+  if (!entries || entries.length === 0) return entries
+
+  entries.sort((a, b) => {
+    // Directories come before files
+    if (a.type === "directory" && b.type !== "directory") return -1
+    if (a.type !== "directory" && b.type === "directory") return 1
+    // Within same type, sort alphabetically (case-insensitive)
+    const nameA = (a.path.split("/").pop() || a.path).toLowerCase()
+    const nameB = (b.path.split("/").pop() || b.path).toLowerCase()
+    return nameA.localeCompare(nameB)
+  })
+
+  // Recursively sort children
+  for (const entry of entries) {
+    if (entry.children && entry.children.length > 0) {
+      sortTree(entry.children)
+    }
+  }
+
+  return entries
+}
+
 // Helper: Build tree from flat file list
 function buildTreeFromFiles(files) {
   const tree = []
@@ -781,7 +805,8 @@ function buildTreeFromFiles(files) {
     }
   }
 
-  return tree
+  // Sort the tree alphabetically (directories first, then files)
+  return sortTree(tree)
 }
 
 app.listen(PORT, () => {
