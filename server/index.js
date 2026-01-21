@@ -846,7 +846,73 @@ function buildTreeFromFiles(files) {
   return sortedTree
 }
 
-app.listen(PORT, () => {
+// Auto-register LHI_SCRIPTS_ROOT if set and not already in registry
+async function autoRegisterLhiScripts() {
+  const lhiScriptsRoot = process.env.LHI_SCRIPTS_ROOT
+  if (!lhiScriptsRoot) {
+    console.log("LHI_SCRIPTS_ROOT not set, skipping auto-registration")
+    return
+  }
+
+  try {
+    // Ensure registry directory exists
+    const registryDir = path.dirname(REGISTRY_FILE)
+    await fs.mkdir(registryDir, { recursive: true })
+
+    // Read or create registry
+    let registry = { monitors: {} }
+    try {
+      const content = await fs.readFile(REGISTRY_FILE, "utf-8")
+      registry = JSON.parse(content)
+    } catch {
+      // Registry doesn't exist yet, will create it
+    }
+
+    // Check if LHI_SCRIPTS_ROOT is already registered
+    if (registry.monitors && registry.monitors[lhiScriptsRoot]) {
+      console.log(`LHI_SCRIPTS_ROOT already registered: ${lhiScriptsRoot}`)
+      return
+    }
+
+    // Verify directory exists before registering
+    try {
+      await fs.access(lhiScriptsRoot)
+    } catch {
+      console.warn(`LHI_SCRIPTS_ROOT directory does not exist: ${lhiScriptsRoot}`)
+      return
+    }
+
+    // Add to registry
+    if (!registry.monitors) {
+      registry.monitors = {}
+    }
+
+    const now = new Date()
+    const estFormatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+    })
+
+    registry.monitors[lhiScriptsRoot] = {
+      manifest: path.join(lhiScriptsRoot, ".lhi_manifest"),
+      last_update: now.toISOString(),
+      last_update_est: estFormatter.format(now) + " EST",
+    }
+
+    await fs.writeFile(REGISTRY_FILE, JSON.stringify(registry, null, 2))
+    console.log(`Auto-registered LHI_SCRIPTS_ROOT: ${lhiScriptsRoot}`)
+  } catch (error) {
+    console.error("Failed to auto-register LHI_SCRIPTS_ROOT:", error.message)
+  }
+}
+
+app.listen(PORT, async () => {
   console.log(`LHI Directory Monitor Backend running on port ${PORT}`)
   console.log(`Registry file: ${REGISTRY_FILE}`)
   console.log(`Monitor scripts: ${MONITOR_DIR}`)
@@ -858,5 +924,7 @@ app.listen(PORT, () => {
     console.warn(`Set it in your shell profile or systemd service file.`)
   } else {
     console.log(`LHI_SCRIPTS_ROOT: ${process.env.LHI_SCRIPTS_ROOT}`)
+    // Auto-register LHI_SCRIPTS_ROOT on startup
+    await autoRegisterLhiScripts()
   }
 })
