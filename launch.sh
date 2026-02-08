@@ -6,9 +6,7 @@
 # Usage:
 #   ./launch.sh [start|stop|restart|status|logs]
 #
-# Ports:
-#   Backend: 7014
-#   Frontend: 7015 (standalone mode only)
+# Ports: Loaded from port_registry (Single Source of Truth)
 
 set -e
 
@@ -17,14 +15,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # Source LHI Launch Service helpers if available (for loading screen during startup)
-LHI_LAUNCH_HELPERS="${LHI_SCRIPTS_ROOT:-/Users/patrickwatson/lhi_scripts}/lhi_modules/lhi_utility_modules/lhi_launch_service/helpers/launch-helpers.sh"
+LHI_SCRIPTS_ROOT="${LHI_SCRIPTS_ROOT:-$(cd "$SCRIPT_DIR/../../../../.." && pwd)}"
+LHI_LAUNCH_HELPERS="${LHI_SCRIPTS_ROOT}/lhi_modules/lhi_utility_modules/lhi_launch_service/helpers/launch-helpers.sh"
 if [ -f "$LHI_LAUNCH_HELPERS" ]; then
     source "$LHI_LAUNCH_HELPERS"
 fi
 
-# Ports
-BACKEND_PORT=7014
-FRONTEND_PORT=7015
+# Dynamic port lookup from port_registry (Single Source of Truth)
+PORT_REGISTRY_SH="${LHI_SCRIPTS_ROOT}/lhi_modules/lhi_git_projects/LifeHackInnovationsLLC/lhi_node_modules/lhi_bash_utilities/lib/port_registry.sh"
+
+if [ -f "$PORT_REGISTRY_SH" ]; then
+    source "$PORT_REGISTRY_SH"
+    BACKEND_PORT=$(get_port_by_tool "lhi-directory-monitor")
+fi
+
+# Fallback if port_registry unavailable
+BACKEND_PORT=${BACKEND_PORT:-7014}
+# Standalone frontend port - not separately registered, uses backend port + 1
+FRONTEND_PORT=$((BACKEND_PORT + 1))
 
 # PID files
 BACKEND_PID_FILE="$SCRIPT_DIR/.backend.pid"
